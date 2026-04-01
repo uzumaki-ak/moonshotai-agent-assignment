@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models import Brand
+from app.models import Brand, Product
 from app.schemas.brand import BrandComparisonRow, BrandDetail, BrandRead
 from app.services.analysis.metrics import get_brand_comparison, get_brand_detail
 
@@ -14,7 +14,11 @@ router = APIRouter()
 @router.get("", response_model=list[BrandRead])
 def list_brands(db: Session = Depends(get_db)) -> list[Brand]:
     # this endpoint lists all tracked brands
-    return db.execute(select(Brand).order_by(Brand.name.asc())).scalars().all()
+    return (
+        db.execute(select(Brand).join(Product, Product.brand_id == Brand.id).distinct().order_by(Brand.name.asc()))
+        .scalars()
+        .all()
+    )
 
 
 @router.get("/compare", response_model=list[BrandComparisonRow])

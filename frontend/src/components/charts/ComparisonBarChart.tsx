@@ -26,8 +26,8 @@ export function ComparisonBarChart({ data }: ComparisonBarChartProps) {
           <XAxis dataKey="brand" tick={{ fill: "#b9b8b4", fontSize: 11 }} />
           <YAxis tick={{ fill: "#b9b8b4", fontSize: 11 }} />
           <Tooltip />
-          <Bar dataKey="avg_price" fill="#f3bf8f" radius={[6, 6, 0, 0]} />
-          <Bar dataKey="sentiment_scaled" fill="#b7dd8b" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="avg_price" fill="#fafafa" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="sentiment_scaled" fill="#71717a" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

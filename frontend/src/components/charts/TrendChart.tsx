@@ -18,7 +18,7 @@ export function TrendChart({ data }: TrendChartProps) {
           <XAxis dataKey="date" tick={{ fill: "#b9b8b4", fontSize: 11 }} />
           <YAxis domain={[-1, 1]} tick={{ fill: "#b9b8b4", fontSize: 11 }} />
           <Tooltip />
-          <Line type="monotone" dataKey="sentiment" stroke="#b7dd8b" strokeWidth={2.5} dot={false} />
+          <Line type="monotone" dataKey="sentiment" stroke="#f5f5f5" strokeWidth={2.5} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

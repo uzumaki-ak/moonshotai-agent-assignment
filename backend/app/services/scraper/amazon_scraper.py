@@ -273,7 +273,8 @@ class AmazonScraper:
                 reviews=[],
             )
 
-            product.reviews = await self._scrape_reviews(context, asin, reviews_limit)
+            seeded_reviews = self._extract_reviews_from_soup(soup, reviews_limit, product_url)
+            product.reviews = await self._scrape_reviews(context, asin, reviews_limit, seeded_reviews=seeded_reviews)
             return product
         finally:
             await page.close()
@@ -284,10 +285,47 @@ class AmazonScraper:
         blocked_tokens = ["enter the characters you see below", "sorry, we just need to make sure", "captcha"]
         return any(token in lowered for token in blocked_tokens)
 
-    async def _scrape_reviews(self, context, asin: str, reviews_limit: int) -> list[ScrapedReview]:
+    def _merge_reviews(self, reviews: list[ScrapedReview], limit: int) -> list[ScrapedReview]:
+        # this helper keeps unique reviews and preserves original order
+        unique: list[ScrapedReview] = []
+        seen: set[str] = set()
+
+        for review in reviews:
+            review_key = review.review_id or f"{review.title or ''}|{review.content[:80]}"
+            if review_key in seen:
+                continue
+            seen.add(review_key)
+            unique.append(review)
+            if len(unique) >= limit:
+                break
+
+        return unique
+
+    def _extract_reviews_from_soup(self, soup: BeautifulSoup, limit: int, page_url: str) -> list[ScrapedReview]:
+        # this helper parses review blocks already visible on product page
+        blocks = soup.select("#cm-cr-dp-review-list li.review, #cm-cr-dp-review-list [data-hook='review']")
+        reviews: list[ScrapedReview] = []
+        for block in blocks:
+            review = self._parse_review_block(block, page_url)
+            if review:
+                reviews.append(review)
+            if len(reviews) >= limit:
+                break
+        return self._merge_reviews(reviews, limit)
+
+    async def _scrape_reviews(
+        self,
+        context,
+        asin: str,
+        reviews_limit: int,
+        seeded_reviews: Optional[list[ScrapedReview]] = None,
+    ) -> list[ScrapedReview]:
         # this function scrapes paginated review pages for one asin
-        collected: list[ScrapedReview] = []
+        collected: list[ScrapedReview] = list(seeded_reviews or [])
         page_number = 1
+
+        if len(collected) >= reviews_limit:
+            return self._merge_reviews(collected, reviews_limit)
 
         while len(collected) < reviews_limit and page_number <= 10:
             reviews_url = f"https://www.amazon.in/product-reviews/{asin}/?pageNumber={page_number}&sortBy=recent"
@@ -309,25 +347,35 @@ class AmazonScraper:
                     review = self._parse_review_block(block, reviews_url)
                     if review:
                         collected.append(review)
-                    if len(collected) >= reviews_limit:
+                    if len(self._merge_reviews(collected, reviews_limit)) >= reviews_limit:
                         break
             finally:
                 await page.close()
 
             page_number += 1
 
-        return collected[:reviews_limit]
+        return self._merge_reviews(collected, reviews_limit)
 
     def _parse_review_block(self, block, reviews_url: str) -> Optional[ScrapedReview]:
         # this function parses one review dom block
         review_id = block.get("id")
-        title_node = block.select_one("a[data-hook='review-title']")
-        title = _clean_text(title_node.get_text(" ", strip=True) if title_node else "")
-        content = _clean_text(
-            block.select_one("span[data-hook='review-body']").get_text(" ", strip=True)
-            if block.select_one("span[data-hook='review-body']")
-            else ""
+        title_node = block.select_one("a[data-hook='review-title'], span[data-hook='review-title']")
+        title = ""
+        if title_node:
+            title_parts = []
+            for node in title_node.select("span"):
+                text = _clean_text(node.get_text(" ", strip=True))
+                if not text or "out of 5 stars" in text.lower():
+                    continue
+                title_parts.append(text)
+            title = _clean_text(" ".join(title_parts)) or _clean_text(title_node.get_text(" ", strip=True))
+
+        content_node = (
+            block.select_one("[data-hook='review-collapsed']")
+            or block.select_one(".review-text-content span")
+            or block.select_one("span[data-hook='review-body']")
         )
+        content = _clean_text(content_node.get_text(" ", strip=True) if content_node else "")
         if not content:
             return None
 

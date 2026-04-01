@@ -1,15 +1,15 @@
 /* this file defines visual system and component styles */
 :root {
-  --bg: #f2ddd2;
-  --bg-lines: rgba(132, 94, 73, 0.08);
+  --bg: #f4f4f5;
+  --bg-lines: rgba(17, 24, 39, 0.05);
   --panel: #15171d;
   --panel-2: #1b1e27;
   --panel-soft: #242834;
   --border: rgba(228, 210, 201, 0.12);
   --text: #f4f2ef;
   --muted: #b9b8b4;
-  --accent: #b7dd8b;
-  --accent-dark: #8fbc66;
+  --accent: #f5f5f5;
+  --accent-dark: #d4d4d8;
   --danger: #ef8383;
   --radius: 16px;
 }
@@ -73,8 +73,8 @@ a {
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 12px rgba(183, 221, 139, 0.7);
+  background: #ffffff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
 }
 
 .brand-block h1 {
@@ -111,14 +111,14 @@ a {
 }
 
 .nav-link:hover {
-  border-color: rgba(183, 221, 139, 0.25);
+  border-color: rgba(255, 255, 255, 0.24);
   color: #f5f4f1;
 }
 
 .nav-link.active {
-  background: rgba(183, 221, 139, 0.12);
-  border-color: rgba(183, 221, 139, 0.5);
-  color: #d8edc1;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #ffffff;
 }
 
 .sidebar-footer {
@@ -310,7 +310,7 @@ th {
 }
 
 .ghost-link {
-  color: var(--accent);
+  color: #f5f5f5;
   font-size: 13px;
 }
 
@@ -384,9 +384,9 @@ th {
 }
 
 .chip.active {
-  border-color: rgba(183, 221, 139, 0.55);
-  background: rgba(183, 221, 139, 0.16);
-  color: #e9f6d8;
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 .review-list {
@@ -456,8 +456,8 @@ textarea {
 button {
   border: none;
   border-radius: 10px;
-  background: var(--accent);
-  color: #26351b;
+  background: #f5f5f5;
+  color: #111111;
   font-weight: 700;
   text-transform: capitalize;
   cursor: pointer;

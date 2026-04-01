@@ -20,7 +20,7 @@ def _to_float(value) -> Optional[float]:
 
 def get_overview_payload(db: Session) -> dict:
     # this function builds overview cards and trend data
-    total_brands = db.scalar(select(func.count(Brand.id))) or 0
+    total_brands = db.scalar(select(func.count(func.distinct(Product.brand_id)))) or 0
     total_products = db.scalar(select(func.count(Product.id))) or 0
     total_reviews = db.scalar(select(func.count(Review.id))) or 0
 
@@ -131,13 +131,15 @@ def get_brand_comparison(db: Session, brand_ids: Optional[list[int]] = None) -> 
 
     rows = db.execute(query).all()
 
-    if not rows:
+    active_rows = [row for row in rows if row.avg_price is not None or row.review_count not in (None, 0) or row.avg_rating is not None]
+
+    if not active_rows:
         return []
 
-    avg_market_price = sum(float(row.avg_price or 0.0) for row in rows) / max(len(rows), 1)
+    avg_market_price = sum(float(row.avg_price or 0.0) for row in active_rows) / max(len(active_rows), 1)
 
     payload = []
-    for row in rows:
+    for row in active_rows:
         avg_price = _to_float(row.avg_price)
         sentiment = _to_float(row.sentiment_score)
         discount = _to_float(row.avg_discount_pct)
@@ -213,6 +215,9 @@ def get_brand_detail(db: Session, brand_id: int) -> Optional[dict]:
     ).first()
 
     if not row:
+        return None
+
+    if not any([row.product_count, row.review_count, row.avg_price, row.avg_rating, row.sentiment_score]):
         return None
 
     return {
