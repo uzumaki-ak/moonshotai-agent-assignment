@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models import PipelineJob
 from app.schemas.job import AnalyzeJobCreate, JobRead, ScrapeJobCreate
-from app.services.jobs.pipeline import run_analyze_job, run_scrape_job
+from app.services.jobs.pipeline import run_analyze_job_async, run_scrape_job_async
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ def create_scrape_job(payload: ScrapeJobCreate, background_tasks: BackgroundTask
     db.commit()
     db.refresh(job)
 
-    background_tasks.add_task(run_scrape_job, job.id)
+    background_tasks.add_task(run_scrape_job_async, job.id)
     return job
 
 
@@ -43,7 +43,7 @@ def create_analyze_job(payload: AnalyzeJobCreate, background_tasks: BackgroundTa
     db.commit()
     db.refresh(job)
 
-    background_tasks.add_task(run_analyze_job, job.id)
+    background_tasks.add_task(run_analyze_job_async, job.id)
     return job
 
 

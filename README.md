@@ -108,8 +108,10 @@ DATABASE_URL=postgresql+psycopg://postgres.<project_ref>:<password>@aws-0-ap-sou
 
 ### 4 run backend
 
+on windows, run without `--reload` while scraping because playwright needs subprocess support.
+
 ```powershell
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --port 8000
 ```
 
 ### 5 frontend setup

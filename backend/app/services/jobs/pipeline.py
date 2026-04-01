@@ -61,6 +61,11 @@ def run_scrape_job(job_id: str) -> None:
     asyncio.run(_run_scrape_job_async(job_id))
 
 
+async def run_scrape_job_async(job_id: str) -> None:
+    # this function runs scrape job directly on current event loop
+    await _run_scrape_job_async(job_id)
+
+
 async def _run_scrape_job_async(job_id: str) -> None:
     # this function executes scraping for selected brands
     _update_job(job_id, status="running")
@@ -181,6 +186,11 @@ def _persist_brand_payload(db, brand_name: str, payload: dict) -> tuple[int, int
 def run_analyze_job(job_id: str) -> None:
     # this function runs analysis and insight generation
     asyncio.run(_run_analyze_job_async(job_id))
+
+
+async def run_analyze_job_async(job_id: str) -> None:
+    # this function runs analyze job directly on current event loop
+    await _run_analyze_job_async(job_id)
 
 
 async def _run_analyze_job_async(job_id: str) -> None:
