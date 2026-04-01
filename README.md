@@ -109,6 +109,7 @@ DATABASE_URL=postgresql+psycopg://postgres.<project_ref>:<password>@aws-0-ap-sou
 ### 4 run backend
 
 on windows, run without `--reload` while scraping because playwright needs subprocess support.
+if you use `--reload`, scrape jobs can fail with `NotImplementedError` from asyncio subprocess.
 
 ```powershell
 uvicorn app.main:app --port 8000

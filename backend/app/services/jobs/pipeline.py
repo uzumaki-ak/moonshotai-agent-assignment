@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -56,9 +57,19 @@ def _update_job(job_id: str, **kwargs) -> None:
         db.commit()
 
 
+def _run_async_job(coro) -> None:
+    # this helper ensures windows jobs use subprocess friendly event loop
+    if sys.platform == "win32":
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    asyncio.run(coro)
+
+
 def run_scrape_job(job_id: str) -> None:
     # this function runs async scraper in a sync background task wrapper
-    asyncio.run(_run_scrape_job_async(job_id))
+    _run_async_job(_run_scrape_job_async(job_id))
 
 
 async def run_scrape_job_async(job_id: str) -> None:
@@ -185,7 +196,7 @@ def _persist_brand_payload(db, brand_name: str, payload: dict) -> tuple[int, int
 
 def run_analyze_job(job_id: str) -> None:
     # this function runs analysis and insight generation
-    asyncio.run(_run_analyze_job_async(job_id))
+    _run_async_job(_run_analyze_job_async(job_id))
 
 
 async def run_analyze_job_async(job_id: str) -> None:
