@@ -576,6 +576,17 @@ def preview_job_artifact(job_id: str, artifact_key: str, limit: int = 25) -> dic
                     "reviews_page": f"https://www.amazon.in/product-reviews/{row.get('asin')}" if row.get("asin") else None,
                 }
             )
+
+        if not preview:
+            for row in (data.get("attempted_search_urls", []) if isinstance(data, dict) else [])[:limit]:
+                preview.append(
+                    {
+                        "search_url": row.get("search_url"),
+                        "page_title": row.get("page_title"),
+                        "blocked": row.get("blocked"),
+                        "no_results": row.get("no_results"),
+                    }
+                )
         return {
             "job_id": job_id,
             "artifact_key": artifact_key,

@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Optional
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
@@ -47,6 +47,16 @@ class ScrapedProduct:
 
 def _extract_asin(url: str) -> Optional[str]:
     # this function extracts asin from multiple amazon url styles
+    parsed = urlparse(url)
+    if parsed.query:
+        query = parse_qs(parsed.query)
+        encoded_url = query.get("url", [])
+        if encoded_url:
+            decoded = unquote(encoded_url[0])
+            nested = _extract_asin(decoded)
+            if nested:
+                return nested
+
     patterns = [r"/dp/([A-Z0-9]{10})", r"/gp/product/([A-Z0-9]{10})"]
     for pattern in patterns:
         match = re.search(pattern, url)
@@ -142,7 +152,7 @@ class AmazonScraper:
 
     async def scrape_brand(self, brand_name: str, products_limit: int, reviews_limit: int) -> dict:
         # this function scrapes products and reviews for one brand
-        search_url = f"https://www.amazon.in/s?k={quote_plus(brand_name + ' luggage')}&rh=n%3A1571271031"
+        search_urls = self._build_search_urls(brand_name)
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.settings.scraper_headless)
@@ -156,13 +166,38 @@ class AmazonScraper:
                     ),
                     viewport={"width": 1366, "height": 768},
                 )
-                page = await context.new_page()
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=self.settings.scraper_timeout_seconds * 1000)
-                await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
-
-                product_urls = await self._extract_product_urls(page, products_limit)
+                product_urls: list[str] = []
                 products: list[ScrapedProduct] = []
                 warnings: list[str] = []
+                attempted_search_urls: list[dict] = []
+
+                for search_url in search_urls:
+                    page = await context.new_page()
+                    try:
+                        await page.goto(search_url, wait_until="domcontentloaded", timeout=self.settings.scraper_timeout_seconds * 1000)
+                        await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
+
+                        discovered_urls, discovery_info = await self._extract_product_urls(page, products_limit)
+                        attempted_search_urls.append(
+                            {
+                                "search_url": search_url,
+                                "discovered_count": len(discovered_urls),
+                                "page_title": discovery_info.get("page_title"),
+                                "blocked": discovery_info.get("blocked"),
+                                "no_results": discovery_info.get("no_results"),
+                            }
+                        )
+
+                        for url in discovered_urls:
+                            if url not in product_urls:
+                                product_urls.append(url)
+                            if len(product_urls) >= products_limit:
+                                break
+                    finally:
+                        await page.close()
+
+                    if len(product_urls) >= products_limit:
+                        break
 
                 for product_url in product_urls:
                     try:
@@ -174,12 +209,15 @@ class AmazonScraper:
 
                     await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
 
+                if not product_urls:
+                    warnings.append("no product links were found on amazon search pages for this run.")
                 if products and all(len(item.reviews) == 0 for item in products):
                     warnings.append("no reviews captured from review pages. amazon may have blocked review endpoints for this run.")
 
                 return {
                     "brand": brand_name,
-                    "search_url": search_url,
+                    "search_url": search_urls[0],
+                    "attempted_search_urls": attempted_search_urls,
                     "products": [asdict(p) for p in products],
                     "warnings": warnings,
                     "scraped_at": datetime.utcnow().isoformat(),
@@ -187,30 +225,55 @@ class AmazonScraper:
             finally:
                 await browser.close()
 
-    async def _extract_product_urls(self, page: Page, limit: int) -> list[str]:
+    def _build_search_urls(self, brand_name: str) -> list[str]:
+        # this helper prepares multiple amazon search variants for resilience
+        queries = [
+            f"{brand_name} luggage",
+            f"{brand_name} trolley bag",
+            brand_name,
+        ]
+        urls = [
+            f"https://www.amazon.in/s?k={quote_plus(queries[0])}&rh=n%3A1571271031",
+            f"https://www.amazon.in/s?k={quote_plus(queries[1])}",
+            f"https://www.amazon.in/s?k={quote_plus(queries[2])}",
+        ]
+        return urls
+
+    async def _extract_product_urls(self, page: Page, limit: int) -> tuple[list[str], dict]:
         # this function extracts product links from search result page
         html = await page.content()
         soup = BeautifulSoup(html, "lxml")
+        page_title = await page.title()
 
-        links = []
-        seen = set()
+        links: list[str] = []
+        seen: set[str] = set()
 
-        for node in soup.select("a.a-link-normal.s-no-outline"):
-            href = node.get("href")
-            if not href:
-                continue
-            full = href if href.startswith("http") else f"https://www.amazon.in{href}"
-            asin = _extract_asin(full)
+        blocked = self._looks_blocked(html)
+        no_results = "no results for" in html.lower()
+
+        # this path uses the stable search result cards amazon renders with data-asin
+        result_cards = soup.select("div[data-component-type='s-search-result'][data-asin]")
+        for card in result_cards:
+            asin = (card.get("data-asin") or "").strip()
             if not asin or asin in seen:
                 continue
+
+            link_node = card.select_one("h2 a")
+            href = link_node.get("href") if link_node else None
+            if href:
+                full = href if href.startswith("http") else f"https://www.amazon.in{href}"
+            else:
+                full = f"https://www.amazon.in/dp/{asin}"
+
+            normalized_url = full.split("?")[0]
             seen.add(asin)
-            links.append(full.split("?")[0])
+            links.append(normalized_url)
             if len(links) >= limit:
                 break
 
-        # this fallback helps when selector changes
         if len(links) < limit:
-            for node in soup.select("a[href*='/dp/']"):
+            # this fallback keeps older selectors for pages that still use them
+            for node in soup.select("a.a-link-normal.s-no-outline, a[href*='/dp/'], a[href*='/gp/product/']"):
                 href = node.get("href")
                 if not href:
                     continue
@@ -223,7 +286,11 @@ class AmazonScraper:
                 if len(links) >= limit:
                     break
 
-        return links[:limit]
+        return links[:limit], {
+            "page_title": page_title,
+            "blocked": blocked,
+            "no_results": no_results,
+        }
 
     async def _scrape_product(self, context, product_url: str, reviews_limit: int) -> Optional[ScrapedProduct]:
         # this function extracts one product page and related reviews
