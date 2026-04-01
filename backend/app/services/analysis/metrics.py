@@ -1,5 +1,4 @@
 # this file computes dashboard metrics from db data
-from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -87,21 +86,44 @@ def _top_theme_names(db: Session, brand_id: int, theme_type: str, limit: int = 3
 
 def get_brand_comparison(db: Session, brand_ids: Optional[list[int]] = None) -> list[dict]:
     # this function returns side by side brand metrics
-    query = (
+    product_stats = (
         select(
-            Brand.id.label("brand_id"),
-            Brand.name.label("brand_name"),
+            Product.brand_id.label("brand_id"),
+            func.count(Product.id).label("product_count"),
             func.avg(Product.price).label("avg_price"),
             func.avg(Product.discount_percent).label("avg_discount_pct"),
             func.avg(Product.rating).label("avg_rating"),
             func.coalesce(func.sum(Product.review_count), 0).label("review_count"),
+        )
+        .group_by(Product.brand_id)
+        .subquery()
+    )
+
+    review_stats = (
+        select(
+            Product.brand_id.label("brand_id"),
             func.avg(Review.sentiment_score).label("sentiment_score"),
         )
+        .select_from(Product)
+        .join(Review, Review.product_id == Product.id)
+        .group_by(Product.brand_id)
+        .subquery()
+    )
+
+    query = (
+        select(
+            Brand.id.label("brand_id"),
+            Brand.name.label("brand_name"),
+            product_stats.c.avg_price.label("avg_price"),
+            product_stats.c.avg_discount_pct.label("avg_discount_pct"),
+            product_stats.c.avg_rating.label("avg_rating"),
+            product_stats.c.review_count.label("review_count"),
+            review_stats.c.sentiment_score.label("sentiment_score"),
+        )
         .select_from(Brand)
-        .join(Product, Product.brand_id == Brand.id, isouter=True)
-        .join(Review, Review.product_id == Product.id, isouter=True)
-        .group_by(Brand.id, Brand.name)
-        .order_by(func.avg(Product.price).desc().nullslast())
+        .join(product_stats, product_stats.c.brand_id == Brand.id, isouter=True)
+        .join(review_stats, review_stats.c.brand_id == Brand.id, isouter=True)
+        .order_by(product_stats.c.avg_price.desc().nullslast())
     )
 
     if brand_ids:
@@ -148,23 +170,46 @@ def get_brand_comparison(db: Session, brand_ids: Optional[list[int]] = None) -> 
 
 def get_brand_detail(db: Session, brand_id: int) -> Optional[dict]:
     # this function returns one brand detail card
-    row = db.execute(
+    product_stats = (
         select(
-            Brand.id,
-            Brand.name,
-            Brand.slug,
+            Product.brand_id.label("brand_id"),
             func.count(Product.id).label("product_count"),
             func.coalesce(func.sum(Product.review_count), 0).label("review_count"),
             func.avg(Product.price).label("avg_price"),
             func.avg(Product.discount_percent).label("avg_discount_pct"),
             func.avg(Product.rating).label("avg_rating"),
+        )
+        .group_by(Product.brand_id)
+        .subquery()
+    )
+
+    review_stats = (
+        select(
+            Product.brand_id.label("brand_id"),
             func.avg(Review.sentiment_score).label("sentiment_score"),
         )
+        .select_from(Product)
+        .join(Review, Review.product_id == Product.id)
+        .group_by(Product.brand_id)
+        .subquery()
+    )
+
+    row = db.execute(
+        select(
+            Brand.id,
+            Brand.name,
+            Brand.slug,
+            product_stats.c.product_count.label("product_count"),
+            product_stats.c.review_count.label("review_count"),
+            product_stats.c.avg_price.label("avg_price"),
+            product_stats.c.avg_discount_pct.label("avg_discount_pct"),
+            product_stats.c.avg_rating.label("avg_rating"),
+            review_stats.c.sentiment_score.label("sentiment_score"),
+        )
         .select_from(Brand)
-        .join(Product, Product.brand_id == Brand.id, isouter=True)
-        .join(Review, Review.product_id == Product.id, isouter=True)
+        .join(product_stats, product_stats.c.brand_id == Brand.id, isouter=True)
+        .join(review_stats, review_stats.c.brand_id == Brand.id, isouter=True)
         .where(Brand.id == brand_id)
-        .group_by(Brand.id, Brand.name, Brand.slug)
     ).first()
 
     if not row:
