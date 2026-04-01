@@ -1,4 +1,5 @@
 # this file keeps all app settings in one place
+import json
 from functools import lru_cache
 from typing import List
 
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "moonshot luggage intelligence"
     app_env: str = "dev"
     api_v1_prefix: str = "/api/v1"
-    backend_cors_origins: List[str] = ["http://localhost:5173"]
+    backend_cors_origins: str = "http://localhost:5173"
 
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/moonshot_ai"
 
@@ -45,10 +46,29 @@ class Settings(BaseSettings):
     @field_validator("backend_cors_origins", mode="before")
     @classmethod
     def parse_cors(cls, value):
-        # this validator supports both csv and json style env values
+        # this validator supports plain string csv and json list values
+        if isinstance(value, list):
+            return ",".join([str(item).strip() for item in value if str(item).strip()])
         if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+            trimmed = value.strip()
+            if not trimmed:
+                return "http://localhost:5173"
+
+            if trimmed.startswith("["):
+                try:
+                    parsed = json.loads(trimmed)
+                    if isinstance(parsed, list):
+                        return ",".join([str(item).strip() for item in parsed if str(item).strip()])
+                except Exception:
+                    pass
+
+            return ",".join([item.strip() for item in trimmed.split(",") if item.strip()])
+        return "http://localhost:5173"
+
+    @property
+    def cors_origins(self) -> List[str]:
+        # this helper exposes cors origins as list for fastapi middleware
+        return [item.strip() for item in self.backend_cors_origins.split(",") if item.strip()]
 
 
 @lru_cache(maxsize=1)
