@@ -1,16 +1,21 @@
 /* this file defines visual system and component styles */
 :root {
-  --bg: #f4f4f5;
-  --bg-lines: rgba(17, 24, 39, 0.05);
-  --panel: #15171d;
-  --panel-2: #1b1e27;
-  --panel-soft: #242834;
-  --border: rgba(228, 210, 201, 0.12);
-  --text: #f4f2ef;
-  --muted: #b9b8b4;
-  --accent: #f5f5f5;
-  --accent-dark: #d4d4d8;
+  --bg: #090b10;
+  --bg-lines: rgba(255, 255, 255, 0.035);
+  --panel: #111318;
+  --panel-2: #171a21;
+  --panel-soft: #20242d;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #f8fafc;
+  --muted: #b6beca;
+  --accent: #ffffff;
+  --accent-dark: #d7dce4;
   --danger: #ef8383;
+  --chart-1: #67e8f9;
+  --chart-2: #a78bfa;
+  --chart-3: #fbbf24;
+  --chart-4: #fb7185;
+  --chart-5: #34d399;
   --radius: 16px;
 }
 
@@ -310,7 +315,7 @@ th {
 }
 
 .ghost-link {
-  color: #f5f5f5;
+  color: #f8fafc;
   font-size: 13px;
 }
 
@@ -546,6 +551,100 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
+.chart-tooltip {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(12, 15, 21, 0.96);
+  color: #f8fafc;
+  padding: 10px 12px;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.32);
+}
+
+.chart-tooltip .label {
+  margin-bottom: 6px;
+  color: #f8fafc;
+  font-size: 12px;
+}
+
+.chart-tooltip .value {
+  color: #dbe4f0;
+  font-size: 12px;
+}
+
+.chat-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+}
+
+.chat-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-bubble {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chat-bubble.user {
+  background: rgba(103, 232, 249, 0.08);
+  border-color: rgba(103, 232, 249, 0.22);
+}
+
+.chat-bubble h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.chat-bubble p {
+  margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chat-citations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-citation {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-citation p {
+  margin: 4px 0;
+}
+
 @media (max-width: 1260px) {
   .stat-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -560,6 +659,10 @@ button:disabled {
   }
 
   .insight-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-layout {
     grid-template-columns: 1fr;
   }
 }

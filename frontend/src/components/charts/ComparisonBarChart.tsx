@@ -23,11 +23,26 @@ export function ComparisonBarChart({ data }: ComparisonBarChartProps) {
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.14)" />
-          <XAxis dataKey="brand" tick={{ fill: "#b9b8b4", fontSize: 11 }} />
-          <YAxis tick={{ fill: "#b9b8b4", fontSize: 11 }} />
-          <Tooltip />
-          <Bar dataKey="avg_price" fill="#fafafa" radius={[6, 6, 0, 0]} />
-          <Bar dataKey="sentiment_scaled" fill="#71717a" radius={[6, 6, 0, 0]} />
+          <XAxis dataKey="brand" tick={{ fill: "#d7dce4", fontSize: 11 }} />
+          <YAxis tick={{ fill: "#d7dce4", fontSize: 11 }} />
+          <Tooltip
+            contentStyle={{ background: "transparent", border: "none", boxShadow: "none", padding: 0 }}
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null;
+              return (
+                <div className="chart-tooltip">
+                  <div className="label">{label}</div>
+                  {payload.map((item) => (
+                    <div key={item.dataKey as string} className="value">
+                      {item.dataKey === "avg_price" ? `avg price ${Number(item.value).toFixed(0)}` : `sentiment signal ${Number(item.value).toFixed(1)}`}
+                    </div>
+                  ))}
+                </div>
+              );
+            }}
+          />
+          <Bar dataKey="avg_price" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="sentiment_scaled" fill="var(--chart-3)" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

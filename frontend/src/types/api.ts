@@ -116,3 +116,17 @@ export type ArtifactPreview = {
   row_count: number;
   rows: Array<Record<string, unknown>>;
 };
+
+export type ChatCitation = {
+  type: string;
+  label: string;
+  url: string | null;
+};
+
+export type ChatAnswer = {
+  answer: string;
+  provider: string | null;
+  model: string | null;
+  brands: string[];
+  citations: ChatCitation[];
+};

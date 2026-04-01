@@ -5,6 +5,7 @@ const links = [
   { to: "/", label: "overview" },
   { to: "/compare", label: "brand compare" },
   { to: "/insights", label: "agent insights" },
+  { to: "/chat", label: "ask data" },
   { to: "/pipeline", label: "pipeline" },
 ];
 

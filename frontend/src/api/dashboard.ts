@@ -12,7 +12,8 @@ import type {
   ProductDetail,
   Review,
   ArtifactPreview,
-} from "../types/api";
+  ChatAnswer,
+  } from "../types/api";
 
 export async function fetchOverview(): Promise<OverviewResponse> {
   // this function loads overview cards and trend data
@@ -119,4 +120,10 @@ export async function fetchArtifactPreview(jobId: string, artifactKey: string, l
 export async function deleteJob(jobId: string): Promise<void> {
   // this function deletes one job and its stored run files
   await apiClient.delete(`/jobs/${jobId}`);
+}
+
+export async function askChat(payload: { question: string; brand_ids?: number[] }): Promise<ChatAnswer> {
+  // this function asks the grounded dataset assistant one question
+  const { data } = await apiClient.post<ChatAnswer>("/chat/ask", payload);
+  return data;
 }

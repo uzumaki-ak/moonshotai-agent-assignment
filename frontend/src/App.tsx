@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { PageShell } from "./components/layout/PageShell";
 import { BrandPage } from "./pages/BrandPage";
+import { ChatPage } from "./pages/ChatPage";
 import { ComparePage } from "./pages/ComparePage";
 import { InsightsPage } from "./pages/InsightsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -17,6 +18,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<OverviewPage />} />
         <Route path="/compare" element={<ComparePage />} />
+        <Route path="/chat" element={<ChatPage />} />
         <Route path="/brands/:brandId" element={<BrandPage />} />
         <Route path="/products/:productId" element={<ProductPage />} />
         <Route path="/insights" element={<InsightsPage />} />
