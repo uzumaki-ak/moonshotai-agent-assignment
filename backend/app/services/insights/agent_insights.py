@@ -5,9 +5,10 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models import Insight, Theme
+from app.models import Insight
 from app.services.analysis.metrics import get_brand_comparison
-from app.services.llm.router import LlmRouter, parse_json_from_text
+from app.services.insights.langgraph_agent import run_insight_graph
+from app.services.llm.router import LlmRouter
 
 
 def _heuristic_insights(comparison: list[dict]) -> list[dict]:
@@ -63,22 +64,9 @@ async def generate_and_store_insights(db: Session) -> int:
         return 0
 
     llm = LlmRouter()
-    system_prompt = (
-        "you are a market intelligence analyst for luggage brands. "
-        "return strict json with key insights that are practical and non obvious."
-    )
-    user_prompt = (
-        "given this brand comparison data create exactly 5 insights in json format: "
-        "{\"insights\":[{\"insight_type\":\"value|premium|risk|opportunity|theme\",\"title\":\"...\",\"body\":\"...\",\"confidence\":0.0,\"payload\":{}}]} "
-        f"data: {comparison}"
-    )
-
     insights: list[dict] = []
     try:
-        response = await llm.generate(system_prompt=system_prompt, user_prompt=user_prompt, max_tokens=900)
-        parsed = parse_json_from_text(response.get("content", ""))
-        if parsed and isinstance(parsed.get("insights"), list):
-            insights = parsed["insights"]
+        insights = await run_insight_graph(comparison, llm)
     except Exception:
         insights = []
 
