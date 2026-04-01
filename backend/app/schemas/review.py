@@ -17,3 +17,4 @@ class ReviewRead(BaseModel):
     review_date: Optional[date] = None
     verified_purchase: Optional[bool] = None
     helpful_votes: Optional[int] = None
+    source_url: Optional[str] = None

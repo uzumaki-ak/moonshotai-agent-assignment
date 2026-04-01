@@ -37,6 +37,7 @@ frontend/
 data/
   raw/
   cleaned/
+  runs/
 docs/
 ```
 
@@ -55,6 +56,8 @@ docs/
 - `POST /api/v1/jobs/analyze`
 - `GET /api/v1/jobs`
 - `GET /api/v1/jobs/{job_id}`
+- `GET /api/v1/jobs/{job_id}/artifacts`
+- `GET /api/v1/jobs/{job_id}/artifacts/{artifact_key}`
 
 ## frontend routes
 
@@ -133,7 +136,9 @@ frontend default is `http://localhost:5173` and backend default is `http://local
 open `/pipeline` route and:
 - enter brands
 - start scrape
-- then run analysis
+- optionally select a previous scrape run id and run analysis for that run
+- click `view` in job table to inspect raw and cleaned artifacts
+- use artifact preview links to cross check amazon source pages
 
 ### from cli
 
@@ -142,6 +147,12 @@ cd backend
 python -m scripts.run_pipeline scrape --brands Safari Skybags "American Tourister" VIP --products-per-brand 10 --reviews-per-product 50
 python -m scripts.run_pipeline analyze
 ```
+
+run outputs are preserved in run scoped folders:
+
+- `data/runs/<scrape_job_id>/raw/*.json`
+- `data/runs/<analyze_job_id>/cleaned/*.csv`
+- `data/cleaned/*.csv` always points to latest analyzed run
 
 ## sentiment and theme method
 

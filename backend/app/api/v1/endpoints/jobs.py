@@ -1,12 +1,12 @@
 # this file manages scrape and analysis job endpoints
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import PipelineJob
 from app.schemas.job import AnalyzeJobCreate, JobRead, ScrapeJobCreate
-from app.services.jobs.pipeline import run_analyze_job, run_scrape_job
+from app.services.jobs.pipeline import get_job_artifacts, preview_job_artifact, run_analyze_job, run_scrape_job
 
 router = APIRouter()
 
@@ -37,7 +37,10 @@ def create_analyze_job(payload: AnalyzeJobCreate, background_tasks: BackgroundTa
     job = PipelineJob(
         job_type="analyze",
         status="pending",
-        params={"force_recompute": payload.force_recompute},
+        params={
+            "force_recompute": payload.force_recompute,
+            "source_scrape_job_id": payload.source_scrape_job_id,
+        },
     )
     db.add(job)
     db.commit()
@@ -60,3 +63,21 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> PipelineJob:
 def list_jobs(db: Session = Depends(get_db)) -> list[PipelineJob]:
     # this endpoint lists latest jobs for pipeline page
     return db.execute(select(PipelineJob).order_by(PipelineJob.started_at.desc()).limit(100)).scalars().all()
+
+
+@router.get("/{job_id}/artifacts")
+def artifacts(job_id: str) -> dict:
+    # this endpoint returns artifact metadata for one job
+    try:
+        return get_job_artifacts(job_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/{job_id}/artifacts/{artifact_key}")
+def artifact_preview(job_id: str, artifact_key: str, limit: int = Query(default=25, ge=1, le=200)) -> dict:
+    # this endpoint previews rows from one artifact file
+    try:
+        return preview_job_artifact(job_id, artifact_key, limit=limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

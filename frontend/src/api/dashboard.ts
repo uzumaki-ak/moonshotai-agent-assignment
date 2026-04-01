@@ -5,11 +5,13 @@ import type {
   BrandComparisonRow,
   BrandDetail,
   Insight,
+  JobArtifacts,
   OverviewResponse,
   PipelineJob,
   Product,
   ProductDetail,
   Review,
+  ArtifactPreview,
 } from "../types/api";
 
 export async function fetchOverview(): Promise<OverviewResponse> {
@@ -91,8 +93,25 @@ export async function startScrapeJob(payload: {
   return data;
 }
 
-export async function startAnalyzeJob(payload: { force_recompute: boolean }): Promise<PipelineJob> {
+export async function startAnalyzeJob(payload: {
+  force_recompute: boolean;
+  source_scrape_job_id?: string | null;
+}): Promise<PipelineJob> {
   // this function starts analysis job
   const { data } = await apiClient.post<PipelineJob>("/jobs/analyze", payload);
+  return data;
+}
+
+export async function fetchJobArtifacts(jobId: string): Promise<JobArtifacts> {
+  // this function loads artifact metadata for one job
+  const { data } = await apiClient.get<JobArtifacts>(`/jobs/${jobId}/artifacts`);
+  return data;
+}
+
+export async function fetchArtifactPreview(jobId: string, artifactKey: string, limit = 25): Promise<ArtifactPreview> {
+  // this function loads preview rows from one artifact file
+  const { data } = await apiClient.get<ArtifactPreview>(`/jobs/${jobId}/artifacts/${encodeURIComponent(artifactKey)}`, {
+    params: { limit },
+  });
   return data;
 }

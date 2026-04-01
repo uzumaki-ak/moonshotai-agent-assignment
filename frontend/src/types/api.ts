@@ -74,6 +74,7 @@ export type Review = {
   review_date: string | null;
   verified_purchase: boolean | null;
   helpful_votes: number | null;
+  source_url: string | null;
 };
 
 export type Insight = {
@@ -94,4 +95,24 @@ export type PipelineJob = {
   error_message: string | null;
   started_at: string;
   completed_at: string | null;
+};
+
+export type JobArtifacts = {
+  job_id: string;
+  artifacts: {
+    raw_dir?: string;
+    cleaned_dir?: string;
+    files?: Array<Record<string, unknown>>;
+    warnings?: string[];
+    row_counts?: Record<string, number>;
+  };
+  message?: string;
+};
+
+export type ArtifactPreview = {
+  job_id: string;
+  artifact_key: string;
+  path: string;
+  row_count: number;
+  rows: Array<Record<string, unknown>>;
 };

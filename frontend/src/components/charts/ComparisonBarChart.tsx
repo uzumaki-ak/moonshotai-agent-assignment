@@ -22,12 +22,12 @@ export function ComparisonBarChart({ data }: ComparisonBarChartProps) {
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" />
-          <XAxis dataKey="brand" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-          <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.14)" />
+          <XAxis dataKey="brand" tick={{ fill: "#b9b8b4", fontSize: 11 }} />
+          <YAxis tick={{ fill: "#b9b8b4", fontSize: 11 }} />
           <Tooltip />
-          <Bar dataKey="avg_price" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
-          <Bar dataKey="sentiment_scaled" fill="#22d3ee" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="avg_price" fill="#f3bf8f" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="sentiment_scaled" fill="#b7dd8b" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

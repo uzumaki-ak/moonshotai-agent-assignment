@@ -5,11 +5,11 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urljoin
 
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
-from playwright.async_api import Browser, Page, async_playwright
+from playwright.async_api import Page, async_playwright
 
 from app.core.config import get_settings
 
@@ -147,16 +147,26 @@ class AmazonScraper:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.settings.scraper_headless)
             try:
-                page = await browser.new_page()
+                context = await browser.new_context(
+                    locale="en-IN",
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    viewport={"width": 1366, "height": 768},
+                )
+                page = await context.new_page()
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=self.settings.scraper_timeout_seconds * 1000)
                 await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
 
                 product_urls = await self._extract_product_urls(page, products_limit)
                 products: list[ScrapedProduct] = []
+                warnings: list[str] = []
 
                 for product_url in product_urls:
                     try:
-                        product = await self._scrape_product(browser, product_url, reviews_limit)
+                        product = await self._scrape_product(context, product_url, reviews_limit)
                         if product:
                             products.append(product)
                     except Exception as exc:
@@ -164,10 +174,14 @@ class AmazonScraper:
 
                     await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
 
+                if products and all(len(item.reviews) == 0 for item in products):
+                    warnings.append("no reviews captured from review pages. amazon may have blocked review endpoints for this run.")
+
                 return {
                     "brand": brand_name,
                     "search_url": search_url,
                     "products": [asdict(p) for p in products],
+                    "warnings": warnings,
                     "scraped_at": datetime.utcnow().isoformat(),
                 }
             finally:
@@ -211,9 +225,9 @@ class AmazonScraper:
 
         return links[:limit]
 
-    async def _scrape_product(self, browser: Browser, product_url: str, reviews_limit: int) -> Optional[ScrapedProduct]:
+    async def _scrape_product(self, context, product_url: str, reviews_limit: int) -> Optional[ScrapedProduct]:
         # this function extracts one product page and related reviews
-        page = await browser.new_page()
+        page = await context.new_page()
         try:
             await page.goto(product_url, wait_until="domcontentloaded", timeout=self.settings.scraper_timeout_seconds * 1000)
             await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
@@ -259,31 +273,40 @@ class AmazonScraper:
                 reviews=[],
             )
 
-            product.reviews = await self._scrape_reviews(browser, asin, reviews_limit)
+            product.reviews = await self._scrape_reviews(context, asin, reviews_limit)
             return product
         finally:
             await page.close()
 
-    async def _scrape_reviews(self, browser: Browser, asin: str, reviews_limit: int) -> list[ScrapedReview]:
+    def _looks_blocked(self, html: str) -> bool:
+        # this helper detects captcha or anti bot pages
+        lowered = html.lower()
+        blocked_tokens = ["enter the characters you see below", "sorry, we just need to make sure", "captcha"]
+        return any(token in lowered for token in blocked_tokens)
+
+    async def _scrape_reviews(self, context, asin: str, reviews_limit: int) -> list[ScrapedReview]:
         # this function scrapes paginated review pages for one asin
         collected: list[ScrapedReview] = []
         page_number = 1
 
         while len(collected) < reviews_limit and page_number <= 10:
             reviews_url = f"https://www.amazon.in/product-reviews/{asin}/?pageNumber={page_number}&sortBy=recent"
-            page = await browser.new_page()
+            page = await context.new_page()
             try:
                 await page.goto(reviews_url, wait_until="domcontentloaded", timeout=self.settings.scraper_timeout_seconds * 1000)
                 await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
 
                 html = await page.content()
+                if self._looks_blocked(html):
+                    logger.warning("review scrape blocked for asin %s page %s", asin, page_number)
+                    break
                 soup = BeautifulSoup(html, "lxml")
-                blocks = soup.select("div[data-hook='review']")
+                blocks = soup.select("div[data-hook='review'], div.review")
                 if not blocks:
                     break
 
                 for block in blocks:
-                    review = self._parse_review_block(block)
+                    review = self._parse_review_block(block, reviews_url)
                     if review:
                         collected.append(review)
                     if len(collected) >= reviews_limit:
@@ -295,18 +318,31 @@ class AmazonScraper:
 
         return collected[:reviews_limit]
 
-    def _parse_review_block(self, block) -> Optional[ScrapedReview]:
+    def _parse_review_block(self, block, reviews_url: str) -> Optional[ScrapedReview]:
         # this function parses one review dom block
         review_id = block.get("id")
-        title = _clean_text(block.select_one("a[data-hook='review-title']").get_text(" ", strip=True) if block.select_one("a[data-hook='review-title']") else "")
-        content = _clean_text(block.select_one("span[data-hook='review-body']").get_text(" ", strip=True) if block.select_one("span[data-hook='review-body']") else "")
+        title_node = block.select_one("a[data-hook='review-title']")
+        title = _clean_text(title_node.get_text(" ", strip=True) if title_node else "")
+        content = _clean_text(
+            block.select_one("span[data-hook='review-body']").get_text(" ", strip=True)
+            if block.select_one("span[data-hook='review-body']")
+            else ""
+        )
         if not content:
             return None
 
-        rating_text = _clean_text(block.select_one("i[data-hook='review-star-rating'] span").get_text() if block.select_one("i[data-hook='review-star-rating'] span") else "")
+        rating_text = _clean_text(
+            block.select_one("i[data-hook='review-star-rating'] span").get_text()
+            if block.select_one("i[data-hook='review-star-rating'] span")
+            else block.select_one("i[data-hook='cmps-review-star-rating'] span").get_text()
+            if block.select_one("i[data-hook='cmps-review-star-rating'] span")
+            else ""
+        )
         date_text = _clean_text(block.select_one("span[data-hook='review-date']").get_text() if block.select_one("span[data-hook='review-date']") else "")
         vp_text = _clean_text(block.select_one("span[data-hook='avp-badge']").get_text() if block.select_one("span[data-hook='avp-badge']") else "")
         helpful_text = _clean_text(block.select_one("span[data-hook='helpful-vote-statement']").get_text() if block.select_one("span[data-hook='helpful-vote-statement']") else "")
+        review_href = title_node.get("href") if title_node else None
+        review_url = urljoin("https://www.amazon.in", review_href) if review_href else reviews_url
 
         return ScrapedReview(
             review_id=review_id,
@@ -321,5 +357,7 @@ class AmazonScraper:
                 "date_text": date_text,
                 "verified_text": vp_text,
                 "helpful_text": helpful_text,
+                "source_url": review_url,
+                "reviews_page_url": reviews_url,
             },
         )

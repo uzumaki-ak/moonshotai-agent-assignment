@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import logging
 import sys
@@ -26,9 +27,11 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 CLEAN_DIR = PROJECT_ROOT / "data" / "cleaned"
+RUNS_DIR = PROJECT_ROOT / "data" / "runs"
 
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 CLEAN_DIR.mkdir(parents=True, exist_ok=True)
+RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _now_iso() -> str:
@@ -55,6 +58,86 @@ def _update_job(job_id: str, **kwargs) -> None:
         for key, value in kwargs.items():
             setattr(job, key, value)
         db.commit()
+
+
+def _ensure_error_message(exc: Exception) -> str:
+    # this helper avoids empty error strings in job table
+    message = str(exc).strip()
+    if message:
+        return message
+    return exc.__class__.__name__
+
+
+def _run_path(job_id: str, section: str) -> Path:
+    # this helper returns consistent run scoped folder paths
+    path = RUNS_DIR / job_id / section
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _latest_completed_scrape_job_id() -> Optional[str]:
+    # this helper fetches most recent completed scrape job
+    with SessionLocal() as db:
+        row = (
+            db.query(PipelineJob)
+            .filter(PipelineJob.job_type == "scrape", PipelineJob.status == "completed")
+            .order_by(PipelineJob.completed_at.desc().nullslast(), PipelineJob.started_at.desc())
+            .first()
+        )
+        return row.id if row else None
+
+
+def _get_scrape_run_files(scrape_job_id: str, allow_legacy_fallback: bool = False) -> list[Path]:
+    # this helper resolves raw json files for one scrape run
+    run_raw_dir = _run_path(scrape_job_id, "raw")
+    files = sorted(run_raw_dir.glob("*.json"))
+    if files:
+        return files
+
+    if allow_legacy_fallback:
+        # this fallback supports legacy raw storage before run folders were added
+        legacy = sorted(RAW_DIR.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        return legacy
+    return []
+
+
+def _reset_operational_tables(db) -> None:
+    # this helper clears derived tables before rebuilding from a selected run
+    db.query(Review).delete(synchronize_session=False)
+    db.query(Theme).delete(synchronize_session=False)
+    db.query(Product).delete(synchronize_session=False)
+    db.commit()
+
+
+def _hydrate_db_from_scrape_run(scrape_job_id: str, allow_legacy_fallback: bool = False) -> dict:
+    # this helper loads selected scrape run raw json into normalized tables
+    raw_files = _get_scrape_run_files(scrape_job_id, allow_legacy_fallback=allow_legacy_fallback)
+    if not raw_files:
+        raise RuntimeError(f"no raw artifacts found for scrape run {scrape_job_id}")
+    loaded_products = 0
+    loaded_reviews = 0
+    loaded_brands: list[str] = []
+
+    with SessionLocal() as db:
+        _reset_operational_tables(db)
+
+        for raw_file in raw_files:
+            payload = json.loads(raw_file.read_text(encoding="utf-8"))
+            brand_name = payload.get("brand")
+            if not brand_name:
+                continue
+            saved_products, saved_reviews = _persist_brand_payload(db, brand_name, payload)
+            loaded_products += saved_products
+            loaded_reviews += saved_reviews
+            loaded_brands.append(brand_name)
+
+    return {
+        "source_scrape_job_id": scrape_job_id,
+        "raw_files": [str(path) for path in raw_files],
+        "brands": sorted(list(set(loaded_brands))),
+        "products_loaded": loaded_products,
+        "reviews_loaded": loaded_reviews,
+    }
 
 
 def _run_async_job(coro) -> None:
@@ -94,6 +177,9 @@ async def _run_scrape_job_async(job_id: str) -> None:
     scraper = AmazonScraper()
     total_products = 0
     total_reviews = 0
+    run_raw_dir = _run_path(job_id, "raw")
+    file_manifest: list[dict] = []
+    warnings: list[str] = []
 
     try:
         for brand_name in brands:
@@ -104,13 +190,31 @@ async def _run_scrape_job_async(job_id: str) -> None:
             )
 
             # this stores raw scrape output for audit and reproducibility
-            raw_path = RAW_DIR / f"{slugify(brand_name)}_{_now_iso()}.json"
+            raw_path = run_raw_dir / f"{slugify(brand_name)}_{_now_iso()}.json"
             raw_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            # this keeps latest raw snapshots for quick access
+            (RAW_DIR / raw_path.name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
             with SessionLocal() as db:
                 saved_products, saved_reviews = _persist_brand_payload(db, brand_name, payload)
                 total_products += saved_products
                 total_reviews += saved_reviews
+                file_manifest.append(
+                    {
+                        "brand": brand_name,
+                        "path": str(raw_path),
+                        "products_saved": saved_products,
+                        "reviews_saved": saved_reviews,
+                    }
+                )
+
+            payload_warnings = payload.get("warnings", [])
+            if payload_warnings:
+                warnings.extend(payload_warnings)
+            if saved_reviews == 0:
+                warnings.append(
+                    f"{brand_name} scrape saved products but no reviews. this can happen when amazon review pages are blocked."
+                )
 
         _update_job(
             job_id,
@@ -119,6 +223,12 @@ async def _run_scrape_job_async(job_id: str) -> None:
                 "brands": brands,
                 "products_saved": total_products,
                 "reviews_saved": total_reviews,
+                "run_id": job_id,
+                "artifacts": {
+                    "raw_dir": str(run_raw_dir),
+                    "files": file_manifest,
+                    "warnings": warnings,
+                },
             },
             completed_at=datetime.utcnow(),
         )
@@ -127,7 +237,7 @@ async def _run_scrape_job_async(job_id: str) -> None:
         _update_job(
             job_id,
             status="failed",
-            error_message=str(exc),
+            error_message=_ensure_error_message(exc),
             completed_at=datetime.utcnow(),
         )
 
@@ -174,6 +284,11 @@ def _persist_brand_payload(db, brand_name: str, payload: dict) -> tuple[int, int
             content = (review_data.get("content") or "").strip()
             if not content:
                 continue
+            raw_payload = review_data.get("raw_payload") or {}
+            if "source_url" not in raw_payload:
+                raw_payload["source_url"] = f"https://www.amazon.in/product-reviews/{asin}"
+            if "product_url" not in raw_payload:
+                raw_payload["product_url"] = product_data.get("url")
             review = Review(
                 product_id=product.id,
                 review_id=review_data.get("review_id"),
@@ -183,7 +298,7 @@ def _persist_brand_payload(db, brand_name: str, payload: dict) -> tuple[int, int
                 review_date=_parse_date(review_data.get("review_date")),
                 verified_purchase=review_data.get("verified_purchase"),
                 helpful_votes=review_data.get("helpful_votes"),
-                raw_payload=review_data.get("raw_payload"),
+                raw_payload=raw_payload,
             )
             db.add(review)
             saved_reviews += 1
@@ -210,19 +325,39 @@ async def _run_analyze_job_async(job_id: str) -> None:
 
     try:
         with SessionLocal() as db:
+            analyze_job = db.get(PipelineJob, job_id)
+            params = analyze_job.params if analyze_job else {}
+
+        source_scrape_job_id = params.get("source_scrape_job_id") if params else None
+        explicit_source = bool(source_scrape_job_id)
+        if not source_scrape_job_id:
+            source_scrape_job_id = _latest_completed_scrape_job_id()
+        if not source_scrape_job_id:
+            raise RuntimeError("no completed scrape job available to analyze")
+
+        hydrate_summary = _hydrate_db_from_scrape_run(
+            source_scrape_job_id,
+            allow_legacy_fallback=not explicit_source,
+        )
+
+        cleaned_dir = _run_path(job_id, "cleaned")
+        with SessionLocal() as db:
             _compute_review_sentiments(db)
             _rebuild_themes(db)
             metrics_count = upsert_daily_brand_metrics(db)
             insight_count = await generate_and_store_insights(db)
-            _export_clean_datasets(db)
+            dataset_summary = _export_clean_datasets(db, cleaned_dir=cleaned_dir)
 
         _update_job(
             job_id,
             status="completed",
             result={
+                "source_scrape_job_id": source_scrape_job_id,
+                "hydrate_summary": hydrate_summary,
                 "metrics_rows": metrics_count,
                 "insights_created": insight_count,
-                "dataset_path": str(CLEAN_DIR),
+                "dataset_path": str(cleaned_dir),
+                "artifacts": dataset_summary,
             },
             completed_at=datetime.utcnow(),
         )
@@ -231,7 +366,7 @@ async def _run_analyze_job_async(job_id: str) -> None:
         _update_job(
             job_id,
             status="failed",
-            error_message=str(exc),
+            error_message=_ensure_error_message(exc),
             completed_at=datetime.utcnow(),
         )
 
@@ -279,7 +414,7 @@ def _rebuild_themes(db) -> None:
     db.commit()
 
 
-def _export_clean_datasets(db) -> None:
+def _export_clean_datasets(db, cleaned_dir: Path) -> dict:
     # this function writes cleaned csv files used by dashboard and review
     products = db.execute(
         select(
@@ -315,6 +450,7 @@ def _export_clean_datasets(db) -> None:
             Review.review_date,
             Review.verified_purchase,
             Review.helpful_votes,
+            Review.raw_payload,
         )
         .join(Product, Product.id == Review.product_id)
         .join(Brand, Brand.id == Product.brand_id)
@@ -337,7 +473,131 @@ def _export_clean_datasets(db) -> None:
 
     comparison = get_brand_comparison(db)
 
-    pd.DataFrame([row._asdict() for row in products]).to_csv(CLEAN_DIR / "products_clean.csv", index=False)
-    pd.DataFrame([row._asdict() for row in reviews]).to_csv(CLEAN_DIR / "reviews_clean.csv", index=False)
-    pd.DataFrame([row._asdict() for row in themes]).to_csv(CLEAN_DIR / "themes_clean.csv", index=False)
-    pd.DataFrame(comparison).to_csv(CLEAN_DIR / "brand_comparison_clean.csv", index=False)
+    products_df = pd.DataFrame([row._asdict() for row in products])
+    reviews_rows = []
+    for row in reviews:
+        item = row._asdict()
+        payload = item.pop("raw_payload", None)
+        if isinstance(payload, dict):
+            item["source_url"] = payload.get("source_url")
+            item["reviews_page_url"] = payload.get("reviews_page_url")
+        else:
+            item["source_url"] = None
+            item["reviews_page_url"] = None
+        reviews_rows.append(item)
+    reviews_df = pd.DataFrame(reviews_rows)
+    themes_df = pd.DataFrame([row._asdict() for row in themes])
+    comparison_df = pd.DataFrame(comparison)
+
+    # this section writes run scoped files and also refreshes latest snapshot paths
+    products_run_path = cleaned_dir / "products_clean.csv"
+    reviews_run_path = cleaned_dir / "reviews_clean.csv"
+    themes_run_path = cleaned_dir / "themes_clean.csv"
+    comparison_run_path = cleaned_dir / "brand_comparison_clean.csv"
+
+    products_df.to_csv(products_run_path, index=False)
+    reviews_df.to_csv(reviews_run_path, index=False)
+    themes_df.to_csv(themes_run_path, index=False)
+    comparison_df.to_csv(comparison_run_path, index=False)
+
+    products_df.to_csv(CLEAN_DIR / "products_clean.csv", index=False)
+    reviews_df.to_csv(CLEAN_DIR / "reviews_clean.csv", index=False)
+    themes_df.to_csv(CLEAN_DIR / "themes_clean.csv", index=False)
+    comparison_df.to_csv(CLEAN_DIR / "brand_comparison_clean.csv", index=False)
+
+    return {
+        "cleaned_dir": str(cleaned_dir),
+        "files": [
+            {"key": "products_clean", "path": str(products_run_path)},
+            {"key": "reviews_clean", "path": str(reviews_run_path)},
+            {"key": "themes_clean", "path": str(themes_run_path)},
+            {"key": "brand_comparison_clean", "path": str(comparison_run_path)},
+        ],
+        "row_counts": {
+            "products": int(len(products_df)),
+            "reviews": int(len(reviews_df)),
+            "themes": int(len(themes_df)),
+            "brand_comparison": int(len(comparison_df)),
+        },
+    }
+
+
+def get_job_artifacts(job_id: str) -> dict:
+    # this function returns artifact metadata for one completed job
+    with SessionLocal() as db:
+        job = db.get(PipelineJob, job_id)
+        if not job:
+            raise RuntimeError("job not found")
+        result = job.result or {}
+
+    artifacts = result.get("artifacts") if isinstance(result, dict) else None
+    if not artifacts:
+        return {"job_id": job_id, "artifacts": {}, "message": "no artifacts found for this job"}
+    return {"job_id": job_id, "artifacts": artifacts}
+
+
+def preview_job_artifact(job_id: str, artifact_key: str, limit: int = 25) -> dict:
+    # this function loads preview rows from artifact files for ui verification
+    payload = get_job_artifacts(job_id)
+    artifacts = payload.get("artifacts", {})
+    files = artifacts.get("files", [])
+    selected = None
+
+    for row in files:
+        key = row.get("key") or row.get("brand")
+        if str(key) == artifact_key:
+            selected = row
+            break
+
+    if not selected:
+        raise RuntimeError("artifact not found")
+
+    path = Path(selected["path"]).resolve()
+    data_root = (PROJECT_ROOT / "data").resolve()
+    if data_root not in path.parents and path != data_root:
+        raise RuntimeError("artifact path is outside data directory")
+    if not path.exists():
+        raise RuntimeError("artifact file not found on disk")
+
+    if path.suffix.lower() == ".json":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        products = data.get("products", []) if isinstance(data, dict) else []
+        preview = []
+        for row in products[:limit]:
+            preview.append(
+                {
+                    "asin": row.get("asin"),
+                    "title": row.get("title"),
+                    "price": row.get("price"),
+                    "rating": row.get("rating"),
+                    "review_count": row.get("review_count"),
+                    "product_url": row.get("url"),
+                    "reviews_scraped": len(row.get("reviews", [])),
+                    "reviews_page": f"https://www.amazon.in/product-reviews/{row.get('asin')}" if row.get("asin") else None,
+                }
+            )
+        return {
+            "job_id": job_id,
+            "artifact_key": artifact_key,
+            "path": str(path),
+            "rows": preview,
+            "row_count": len(preview),
+        }
+
+    if path.suffix.lower() == ".csv":
+        rows = []
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for index, row in enumerate(reader):
+                if index >= limit:
+                    break
+                rows.append(row)
+        return {
+            "job_id": job_id,
+            "artifact_key": artifact_key,
+            "path": str(path),
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
+    raise RuntimeError("unsupported artifact file type")

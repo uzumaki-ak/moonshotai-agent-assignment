@@ -51,6 +51,9 @@ export function ProductPage() {
       <div className="card banner">
         <h3>{detail.title}</h3>
         <p>{detail.review_synthesis}</p>
+        <a href={detail.url} target="_blank" rel="noreferrer" className="ghost-link">
+          open product source page
+        </a>
       </div>
 
       <div className="two-col">
@@ -88,6 +91,11 @@ export function ProductPage() {
                   <SentimentPill score={review.sentiment_score} />
                 </div>
                 <p>{review.content}</p>
+                {review.source_url ? (
+                  <a href={review.source_url} target="_blank" rel="noreferrer" className="ghost-link">
+                    open source review
+                  </a>
+                ) : null}
               </article>
             ))}
           </div>

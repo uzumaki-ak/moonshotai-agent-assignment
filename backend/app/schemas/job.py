@@ -15,6 +15,7 @@ class ScrapeJobCreate(BaseModel):
 class AnalyzeJobCreate(BaseModel):
     # this schema starts analysis job
     force_recompute: bool = False
+    source_scrape_job_id: Optional[str] = None
 
 
 class JobRead(BaseModel):

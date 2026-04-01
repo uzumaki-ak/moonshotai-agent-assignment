@@ -1,7 +1,7 @@
 // this file renders price band distribution chart
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-const colors = ["#0ea5e9", "#22d3ee", "#6366f1"];
+const colors = ["#b7dd8b", "#f3bf8f", "#ef8383"];
 
 type PriceBandChartProps = {
   data: Array<{ band: string; product_count: number }>;

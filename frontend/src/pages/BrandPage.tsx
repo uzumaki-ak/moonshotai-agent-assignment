@@ -89,6 +89,7 @@ export function BrandPage() {
                   <th>rating</th>
                   <th>reviews</th>
                   <th>open</th>
+                  <th>source</th>
                 </tr>
               </thead>
               <tbody>
@@ -103,6 +104,11 @@ export function BrandPage() {
                       <Link to={`/products/${product.id}`} className="ghost-link">
                         details
                       </Link>
+                    </td>
+                    <td>
+                      <a href={product.url} target="_blank" rel="noreferrer" className="ghost-link">
+                        amazon
+                      </a>
                     </td>
                   </tr>
                 ))}
@@ -127,6 +133,11 @@ export function BrandPage() {
                   <SentimentPill score={review.sentiment_score} />
                 </div>
                 <p>{review.content}</p>
+                {review.source_url ? (
+                  <a href={review.source_url} target="_blank" rel="noreferrer" className="ghost-link">
+                    open source review
+                  </a>
+                ) : null}
               </article>
             ))}
           </div>

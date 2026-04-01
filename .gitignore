@@ -27,5 +27,7 @@ Thumbs.db
 
 /data/raw/*.json
 /data/cleaned/*.csv
+/data/runs/**
 !data/raw/.gitkeep
 !data/cleaned/.gitkeep
+!data/runs/.gitkeep
