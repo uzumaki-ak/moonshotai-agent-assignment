@@ -136,6 +136,16 @@ def _parse_review_date(raw: Optional[str]) -> Optional[str]:
     # this function parses review date into iso date string
     if not raw:
         return None
+
+
+def _trim_text(value: Optional[str], limit: int) -> Optional[str]:
+    # this helper avoids db overflow on fixed varchar columns
+    if value is None:
+        return None
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    return cleaned[:limit]
     cleaned = raw.replace("Reviewed in India on", "").strip()
     try:
         parsed = date_parser.parse(cleaned, dayfirst=True)
@@ -239,6 +249,42 @@ class AmazonScraper:
         ]
         return urls
 
+    def _is_relevant_product(self, title: str, category: Optional[str]) -> bool:
+        # this helper filters obvious non luggage results from broad brand searches
+        text = f"{title} {category or ''}".lower()
+        positive_keywords = [
+            "luggage",
+            "suitcase",
+            "trolley",
+            "backpack",
+            "rucksack",
+            "duffle",
+            "duffel",
+            "travel bag",
+            "cabin bag",
+            "check in",
+            "overnighter",
+            "weekender",
+            "bag",
+        ]
+        negative_keywords = [
+            "shoe",
+            "shoes",
+            "footwear",
+            "sandal",
+            "loafer",
+            "boot",
+            "sneaker",
+            "clog",
+            "slipper",
+            "watch",
+            "wallet",
+        ]
+
+        if any(keyword in text for keyword in negative_keywords):
+            return False
+        return any(keyword in text for keyword in positive_keywords)
+
     async def _extract_product_urls(self, page: Page, limit: int) -> tuple[list[str], dict]:
         # this function extracts product links from search result page
         html = await page.content()
@@ -322,6 +368,9 @@ class AmazonScraper:
 
             category = _clean_text(" > ".join([node.get_text(strip=True) for node in soup.select("#wayfinding-breadcrumbs_feature_div ul li a")]))
             size = _clean_text((soup.select_one("#variation_size_name .selection") or {}).get_text() if soup.select_one("#variation_size_name .selection") else "")
+
+            if not self._is_relevant_product(title, category):
+                return None
 
             price = _parse_price(price_text)
             list_price = _parse_price(list_price_text)

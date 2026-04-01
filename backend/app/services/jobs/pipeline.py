@@ -20,7 +20,7 @@ from app.services.analysis.metrics import get_brand_comparison, upsert_daily_bra
 from app.services.analysis.sentiment import compute_review_sentiment
 from app.services.analysis.themes import extract_themes
 from app.services.insights.agent_insights import generate_and_store_insights
-from app.services.scraper.amazon_scraper import AmazonScraper
+from app.services.scraper.amazon_scraper import AmazonScraper, _trim_text
 
 logger = logging.getLogger(__name__)
 
@@ -268,8 +268,8 @@ def _persist_brand_payload(db, brand_name: str, payload: dict) -> tuple[int, int
         product.brand_id = brand.id
         product.title = title
         product.url = product_data.get("url") or product.url
-        product.category = product_data.get("category")
-        product.size = product_data.get("size")
+        product.category = _trim_text(product_data.get("category"), 100)
+        product.size = _trim_text(product_data.get("size"), 100)
         product.price = product_data.get("price")
         product.list_price = product_data.get("list_price")
         product.discount_percent = product_data.get("discount_percent")

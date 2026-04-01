@@ -20,8 +20,8 @@ class Product(TimestampMixin, Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
 
-    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    size: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    size: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     price: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     list_price: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
