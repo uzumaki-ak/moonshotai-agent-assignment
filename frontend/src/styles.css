@@ -518,6 +518,28 @@ button:disabled {
   font-size: 12px;
 }
 
+.info-box {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 12px 0;
+}
+
+.info-box.subtle {
+  margin-bottom: 0;
+}
+
+.info-box p {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.warning-text {
+  color: #ffd8d8 !important;
+}
+
 .artifact-table td {
   max-width: 320px;
   overflow: hidden;

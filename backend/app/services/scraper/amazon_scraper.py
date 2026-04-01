@@ -136,6 +136,34 @@ def _parse_review_date(raw: Optional[str]) -> Optional[str]:
     # this function parses review date into iso date string
     if not raw:
         return None
+    cleaned = raw.replace("Reviewed in India on", "").strip()
+    try:
+        parsed = date_parser.parse(cleaned, dayfirst=True)
+        return parsed.date().isoformat()
+    except Exception:
+        return None
+
+
+def _extract_first_text(soup: BeautifulSoup, selectors: list[str]) -> str:
+    # this helper returns first matching text across selector options
+    for selector in selectors:
+        node = soup.select_one(selector)
+        if not node:
+            continue
+        text = _clean_text(node.get_text(" ", strip=True))
+        if text:
+            return text
+    return ""
+
+
+def _infer_price(price: Optional[float], list_price: Optional[float], discount_percent: Optional[float]) -> Optional[float]:
+    # this helper derives sell price when amazon only exposes mrp plus discount
+    if price is not None:
+        return price
+    if list_price is None or discount_percent is None:
+        return None
+    inferred = list_price * max(0.0, 100.0 - discount_percent) / 100.0
+    return round(inferred, 2)
 
 
 def _trim_text(value: Optional[str], limit: int) -> Optional[str]:
@@ -146,12 +174,6 @@ def _trim_text(value: Optional[str], limit: int) -> Optional[str]:
     if not cleaned:
         return None
     return cleaned[:limit]
-    cleaned = raw.replace("Reviewed in India on", "").strip()
-    try:
-        parsed = date_parser.parse(cleaned, dayfirst=True)
-        return parsed.date().isoformat()
-    except Exception:
-        return None
 
 
 class AmazonScraper:
@@ -178,6 +200,7 @@ class AmazonScraper:
                 )
                 product_urls: list[str] = []
                 products: list[ScrapedProduct] = []
+                candidate_products: list[dict] = []
                 warnings: list[str] = []
                 attempted_search_urls: list[dict] = []
 
@@ -211,16 +234,27 @@ class AmazonScraper:
 
                 for product_url in product_urls:
                     try:
-                        product = await self._scrape_product(context, product_url, reviews_limit)
+                        product, attempt = await self._scrape_product(context, product_url, reviews_limit)
+                        candidate_products.append(attempt)
                         if product:
                             products.append(product)
                     except Exception as exc:
                         logger.warning("product scrape failed for %s error %s", product_url, exc)
+                        candidate_products.append(
+                            {
+                                "asin": _extract_asin(product_url),
+                                "product_url": product_url,
+                                "status": "error",
+                                "reason": _trim_text(str(exc), 220),
+                            }
+                        )
 
                     await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
 
                 if not product_urls:
                     warnings.append("no product links were found on amazon search pages for this run.")
+                elif not products:
+                    warnings.append("amazon search found candidate links but none became saved products. inspect the raw preview for per url reasons.")
                 if products and all(len(item.reviews) == 0 for item in products):
                     warnings.append("no reviews captured from review pages. amazon may have blocked review endpoints for this run.")
 
@@ -228,6 +262,7 @@ class AmazonScraper:
                     "brand": brand_name,
                     "search_url": search_urls[0],
                     "attempted_search_urls": attempted_search_urls,
+                    "candidate_products": candidate_products,
                     "products": [asdict(p) for p in products],
                     "warnings": warnings,
                     "scraped_at": datetime.utcnow().isoformat(),
@@ -311,7 +346,7 @@ class AmazonScraper:
             else:
                 full = f"https://www.amazon.in/dp/{asin}"
 
-            normalized_url = full.split("?")[0]
+            normalized_url = f"https://www.amazon.in/dp/{asin}" if _extract_asin(full) else full.split("?")[0]
             seen.add(asin)
             links.append(normalized_url)
             if len(links) >= limit:
@@ -328,7 +363,7 @@ class AmazonScraper:
                 if not asin or asin in seen:
                     continue
                 seen.add(asin)
-                links.append(full.split("?")[0])
+                links.append(f"https://www.amazon.in/dp/{asin}")
                 if len(links) >= limit:
                     break
 
@@ -338,7 +373,7 @@ class AmazonScraper:
             "no_results": no_results,
         }
 
-    async def _scrape_product(self, context, product_url: str, reviews_limit: int) -> Optional[ScrapedProduct]:
+    async def _scrape_product(self, context, product_url: str, reviews_limit: int) -> tuple[Optional[ScrapedProduct], dict]:
         # this function extracts one product page and related reviews
         page = await context.new_page()
         try:
@@ -346,18 +381,76 @@ class AmazonScraper:
             await asyncio.sleep(self.settings.scraper_delay_ms / 1000)
             html = await page.content()
             soup = BeautifulSoup(html, "lxml")
+            page_title = await page.title()
 
             asin = _extract_asin(product_url)
             if not asin:
-                return None
+                return None, {
+                    "asin": None,
+                    "product_url": product_url,
+                    "page_title": page_title,
+                    "status": "skipped",
+                    "reason": "missing asin in product url",
+                }
 
-            title = _clean_text((soup.select_one("#productTitle") or {}).get_text() if soup.select_one("#productTitle") else "")
+            if self._looks_blocked(html):
+                return None, {
+                    "asin": asin,
+                    "product_url": product_url,
+                    "page_title": page_title,
+                    "status": "blocked",
+                    "reason": "amazon returned service unavailable or anti bot page",
+                }
+
+            title = _extract_first_text(
+                soup,
+                [
+                    "#productTitle",
+                    "#title #productTitle",
+                    "span#productTitle",
+                ],
+            )
             if not title:
-                return None
+                og_title = soup.select_one("meta[property='og:title']")
+                title = _clean_text(og_title.get("content") if og_title else "")
+            if not title and page_title and "amazon" not in page_title.lower():
+                title = _clean_text(page_title)
+            if not title:
+                return None, {
+                    "asin": asin,
+                    "product_url": product_url,
+                    "page_title": page_title,
+                    "status": "skipped",
+                    "reason": "missing product title on page",
+                }
 
-            price_text = _clean_text((soup.select_one("span.a-price span.a-offscreen") or {}).get_text() if soup.select_one("span.a-price span.a-offscreen") else "")
-            list_price_text = _clean_text((soup.select_one("span.a-price.a-text-price span.a-offscreen") or {}).get_text() if soup.select_one("span.a-price.a-text-price span.a-offscreen") else "")
-            discount_text = _clean_text((soup.select_one("span.savingsPercentage") or {}).get_text() if soup.select_one("span.savingsPercentage") else "")
+            price_text = _extract_first_text(
+                soup,
+                [
+                    "#corePrice_feature_div span.a-price span.a-offscreen",
+                    "#corePriceDisplay_desktop_feature_div span.a-price span.a-offscreen",
+                    "#corePrice_desktop span.a-price span.a-offscreen",
+                    "span.a-price.aok-align-center span.a-offscreen",
+                    "span.a-price span.a-offscreen",
+                ],
+            )
+            list_price_text = _extract_first_text(
+                soup,
+                [
+                    "#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen",
+                    "#corePrice_desktop .basisPrice .a-offscreen",
+                    "span.a-price.a-text-price span.a-offscreen",
+                    ".a-price.a-text-price .a-offscreen",
+                ],
+            )
+            discount_text = _extract_first_text(
+                soup,
+                [
+                    "#corePriceDisplay_desktop_feature_div span.savingsPercentage",
+                    "#corePrice_desktop span.savingsPercentage",
+                    "span.savingsPercentage",
+                ],
+            )
 
             rating_text = ""
             rating_node = soup.select_one("#acrPopover")
@@ -370,10 +463,20 @@ class AmazonScraper:
             size = _clean_text((soup.select_one("#variation_size_name .selection") or {}).get_text() if soup.select_one("#variation_size_name .selection") else "")
 
             if not self._is_relevant_product(title, category):
-                return None
+                return None, {
+                    "asin": asin,
+                    "title": title,
+                    "product_url": product_url,
+                    "page_title": page_title,
+                    "status": "skipped",
+                    "reason": "filtered as non luggage result",
+                    "category": category or None,
+                }
 
             price = _parse_price(price_text)
             list_price = _parse_price(list_price_text)
+            discount_percent = _parse_discount(price, list_price, discount_text)
+            price = _infer_price(price, list_price, discount_percent)
 
             product = ScrapedProduct(
                 asin=asin,
@@ -383,7 +486,7 @@ class AmazonScraper:
                 size=size or None,
                 price=price,
                 list_price=list_price,
-                discount_percent=_parse_discount(price, list_price, discount_text),
+                discount_percent=discount_percent,
                 rating=_parse_rating(rating_text),
                 review_count=_parse_review_count(review_count_text),
                 reviews=[],
@@ -391,14 +494,33 @@ class AmazonScraper:
 
             seeded_reviews = self._extract_reviews_from_soup(soup, reviews_limit, product_url)
             product.reviews = await self._scrape_reviews(context, asin, reviews_limit, seeded_reviews=seeded_reviews)
-            return product
+            return product, {
+                "asin": asin,
+                "title": title,
+                "product_url": product.url,
+                "page_title": page_title,
+                "status": "saved",
+                "reason": None,
+                "category": product.category,
+                "price": product.price,
+                "rating": product.rating,
+                "review_count": product.review_count,
+                "reviews_scraped": len(product.reviews),
+            }
         finally:
             await page.close()
 
     def _looks_blocked(self, html: str) -> bool:
         # this helper detects captcha or anti bot pages
         lowered = html.lower()
-        blocked_tokens = ["enter the characters you see below", "sorry, we just need to make sure", "captcha"]
+        blocked_tokens = [
+            "enter the characters you see below",
+            "sorry, we just need to make sure",
+            "captcha",
+            "503 - service unavailable error",
+            "service unavailable error",
+            "robot check",
+        ]
         return any(token in lowered for token in blocked_tokens)
 
     def _merge_reviews(self, reviews: list[ScrapedReview], limit: int) -> list[ScrapedReview]:

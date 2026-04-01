@@ -562,22 +562,42 @@ def preview_job_artifact(job_id: str, artifact_key: str, limit: int = 25) -> dic
     if path.suffix.lower() == ".json":
         data = json.loads(path.read_text(encoding="utf-8"))
         products = data.get("products", []) if isinstance(data, dict) else []
+        candidate_products = data.get("candidate_products", []) if isinstance(data, dict) else []
         preview = []
-        for row in products[:limit]:
-            preview.append(
-                {
-                    "asin": row.get("asin"),
-                    "title": row.get("title"),
-                    "price": row.get("price"),
-                    "rating": row.get("rating"),
-                    "review_count": row.get("review_count"),
-                    "product_url": row.get("url"),
-                    "reviews_scraped": len(row.get("reviews", [])),
-                    "reviews_page": f"https://www.amazon.in/product-reviews/{row.get('asin')}" if row.get("asin") else None,
-                }
-            )
+        if candidate_products:
+            for row in candidate_products[:limit]:
+                preview.append(
+                    {
+                        "asin": row.get("asin"),
+                        "title": row.get("title"),
+                        "product_url": row.get("product_url"),
+                        "status": row.get("status"),
+                        "reason": row.get("reason"),
+                        "category": row.get("category"),
+                        "price": row.get("price"),
+                        "rating": row.get("rating"),
+                        "review_count": row.get("review_count"),
+                        "reviews_scraped": row.get("reviews_scraped"),
+                        "page_title": row.get("page_title"),
+                    }
+                )
 
-        if not preview:
+        if not candidate_products:
+            for row in products[:limit]:
+                preview.append(
+                    {
+                        "asin": row.get("asin"),
+                        "title": row.get("title"),
+                        "price": row.get("price"),
+                        "rating": row.get("rating"),
+                        "review_count": row.get("review_count"),
+                        "product_url": row.get("url"),
+                        "reviews_scraped": len(row.get("reviews", [])),
+                        "reviews_page": f"https://www.amazon.in/product-reviews/{row.get('asin')}" if row.get("asin") else None,
+                    }
+                )
+
+        if not products and not candidate_products:
             for row in (data.get("attempted_search_urls", []) if isinstance(data, dict) else [])[:limit]:
                 preview.append(
                     {

@@ -1,21 +1,45 @@
 // this file renders pipeline control page for scrape and analyze jobs
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { fetchArtifactPreview, fetchJobArtifacts, fetchJobs, startAnalyzeJob, startScrapeJob } from "../api/dashboard";
 import { EmptyState } from "../components/EmptyState";
+import type { PipelineJob } from "../types/api";
 
 const defaultBrands = ["Safari", "Skybags", "American Tourister", "VIP"];
 
-function summarizeJob(job: { result: Record<string, unknown> | null; error_message: string | null }) {
+function asNumber(value: unknown): number | null {
+  // this helper normalizes api values into numbers
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function asStringArray(value: unknown): string[] {
+  // this helper safely reads string arrays from job payloads
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function summarizeJob(job: PipelineJob) {
   // this helper builds readable note text from job payload
   if (job.error_message) return job.error_message;
   const result = job.result ?? {};
+  const params = job.params ?? {};
   if (typeof result.reviews_saved === "number") {
-    return `products ${result.products_saved ?? 0}, reviews ${result.reviews_saved}`;
+    const brands = asStringArray(params.brands).length;
+    return `brands ${brands}, products ${result.products_saved ?? 0}, reviews ${result.reviews_saved}`;
   }
   if (typeof result.metrics_rows === "number") {
-    return `metrics ${result.metrics_rows}, insights ${result.insights_created ?? 0}`;
+    const hydrate = (result.hydrate_summary as Record<string, unknown> | undefined) ?? {};
+    const source = typeof result.source_scrape_job_id === "string" ? result.source_scrape_job_id.slice(0, 8) : "latest";
+    const loadedBrands = asStringArray(hydrate.brands).length;
+    const loadedProducts = asNumber(hydrate.products_loaded) ?? 0;
+    const loadedReviews = asNumber(hydrate.reviews_loaded) ?? 0;
+    return `source ${source}, brands ${loadedBrands}, products ${loadedProducts}, reviews ${loadedReviews}`;
   }
   return "ok";
 }
@@ -38,15 +62,20 @@ export function PipelinePage() {
 
   const scrapeMutation = useMutation({
     mutationFn: startScrapeJob,
-    onSuccess: () => {
+    onSuccess: (job) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      setSelectedJobId(job.id);
+      setSelectedArtifactKey("");
+      setSelectedScrapeJobId("");
     },
   });
 
   const analyzeMutation = useMutation({
     mutationFn: startAnalyzeJob,
-    onSuccess: () => {
+    onSuccess: (job) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      setSelectedJobId(job.id);
+      setSelectedArtifactKey("");
     },
   });
 
@@ -73,12 +102,20 @@ export function PipelinePage() {
     return (jobsQuery.data ?? []).filter((job) => job.job_type === "scrape" && job.status === "completed");
   }, [jobsQuery.data]);
 
-  useEffect(() => {
-    // this effect auto selects latest completed scrape job for analysis
-    if (!selectedScrapeJobId && completedScrapeJobs.length) {
-      setSelectedScrapeJobId(completedScrapeJobs[0].id);
-    }
-  }, [completedScrapeJobs, selectedScrapeJobId]);
+  const hasActiveScrapeJob = useMemo(() => {
+    return (jobsQuery.data ?? []).some((job) => job.job_type === "scrape" && (job.status === "pending" || job.status === "running"));
+  }, [jobsQuery.data]);
+
+  const selectedJob = useMemo(() => {
+    return (jobsQuery.data ?? []).find((job) => job.id === selectedJobId) ?? null;
+  }, [jobsQuery.data, selectedJobId]);
+
+  const canRunAnalysis = useMemo(() => {
+    if (analyzeMutation.isPending || hasActiveScrapeJob) return false;
+    if (!completedScrapeJobs.length) return false;
+    if (!selectedScrapeJobId) return true;
+    return completedScrapeJobs.some((job) => job.id === selectedScrapeJobId);
+  }, [analyzeMutation.isPending, completedScrapeJobs, hasActiveScrapeJob, selectedScrapeJobId]);
 
   const createScrape = () => {
     // this handler starts scrape job with current controls
@@ -146,9 +183,9 @@ export function PipelinePage() {
               onChange={(event) => setReviewsPerProduct(Number(event.target.value))}
             />
           </label>
-        </div>
+      </div>
 
-        <div className="button-row">
+      <div className="button-row">
           <button type="button" onClick={createScrape} disabled={scrapeMutation.isPending || !parsedBrands.length}>
             {scrapeMutation.isPending ? "starting" : "start scrape"}
           </button>
@@ -165,9 +202,15 @@ export function PipelinePage() {
             </select>
           </label>
 
-          <button type="button" className="secondary" onClick={createAnalyze} disabled={analyzeMutation.isPending}>
+          <button type="button" className="secondary" onClick={createAnalyze} disabled={!canRunAnalysis}>
             {analyzeMutation.isPending ? "starting" : "run analysis"}
           </button>
+        </div>
+
+        <div className="info-box subtle">
+          <p>analysis replaces dashboard data with one scrape run at a time.</p>
+          <p>leave source run blank to analyze the latest completed scrape.</p>
+          {hasActiveScrapeJob ? <p className="warning-text">wait for the active scrape to finish before running analysis, otherwise you may analyze an older run.</p> : null}
         </div>
       </div>
 
@@ -234,6 +277,32 @@ export function PipelinePage() {
           <div className="loader">loading artifacts</div>
         ) : (
           <>
+            {selectedJob ? (
+              <div className="info-box">
+                <p>
+                  viewing {selectedJob.job_type} run <strong>{selectedJob.id.slice(0, 8)}</strong> with status <strong>{selectedJob.status}</strong>
+                </p>
+                {selectedJob.job_type === "scrape" ? (
+                  <p>
+                    requested brands {asStringArray(selectedJob.params?.brands).join(", ") || "na"} with {selectedJob.params?.products_per_brand ?? "na"} products per brand and{" "}
+                    {selectedJob.params?.reviews_per_product ?? "na"} reviews per product
+                  </p>
+                ) : null}
+                {selectedJob.job_type === "analyze" ? (
+                  <>
+                    <p>
+                      source scrape run <strong>{typeof selectedJob.result?.source_scrape_job_id === "string" ? selectedJob.result.source_scrape_job_id.slice(0, 8) : "latest completed"}</strong>
+                    </p>
+                    <p>
+                      loaded brands {asStringArray((selectedJob.result?.hydrate_summary as Record<string, unknown> | undefined)?.brands).join(", ") || "na"} | products{" "}
+                      {asNumber((selectedJob.result?.hydrate_summary as Record<string, unknown> | undefined)?.products_loaded) ?? 0} | reviews{" "}
+                      {asNumber((selectedJob.result?.hydrate_summary as Record<string, unknown> | undefined)?.reviews_loaded) ?? 0}
+                    </p>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             {artifactsQuery.data?.artifacts?.warnings?.length ? (
               <div className="warning-box">
                 {artifactsQuery.data.artifacts.warnings.map((item) => (
