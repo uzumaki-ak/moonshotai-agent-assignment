@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models import PipelineJob
 from app.schemas.job import AnalyzeJobCreate, JobRead, ScrapeJobCreate
-from app.services.jobs.pipeline import get_job_artifacts, preview_job_artifact, run_analyze_job, run_scrape_job
+from app.services.jobs.pipeline import delete_job_run, get_job_artifacts, preview_job_artifact, run_analyze_job, run_scrape_job
 
 router = APIRouter()
 
@@ -79,5 +79,14 @@ def artifact_preview(job_id: str, artifact_key: str, limit: int = Query(default=
     # this endpoint previews rows from one artifact file
     try:
         return preview_job_artifact(job_id, artifact_key, limit=limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.delete("/{job_id}", status_code=204)
+def delete_job(job_id: str) -> None:
+    # this endpoint deletes one job row and its stored run files
+    try:
+        delete_job_run(job_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

@@ -115,3 +115,8 @@ export async function fetchArtifactPreview(jobId: string, artifactKey: string, l
   });
   return data;
 }
+
+export async function deleteJob(jobId: string): Promise<void> {
+  // this function deletes one job and its stored run files
+  await apiClient.delete(`/jobs/${jobId}`);
+}

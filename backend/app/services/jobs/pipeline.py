@@ -5,6 +5,7 @@ import asyncio
 import csv
 import json
 import logging
+import shutil
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -244,9 +245,10 @@ async def _run_scrape_job_async(job_id: str) -> None:
 
 def _persist_brand_payload(db, brand_name: str, payload: dict) -> tuple[int, int]:
     # this function upserts one brand payload into normalized tables
-    brand = db.execute(select(Brand).where(Brand.name == brand_name)).scalar_one_or_none()
+    brand_slug = slugify(brand_name)
+    brand = db.execute(select(Brand).where(Brand.slug == brand_slug)).scalar_one_or_none()
     if not brand:
-        brand = Brand(name=brand_name, slug=slugify(brand_name))
+        brand = Brand(name=brand_name.strip(), slug=brand_slug)
         db.add(brand)
         db.flush()
 
@@ -632,3 +634,20 @@ def preview_job_artifact(job_id: str, artifact_key: str, limit: int = 25) -> dic
         }
 
     raise RuntimeError("unsupported artifact file type")
+
+
+def delete_job_run(job_id: str) -> None:
+    # this function deletes one pipeline job and its run folder
+    with SessionLocal() as db:
+        job = db.get(PipelineJob, job_id)
+        if not job:
+            raise RuntimeError("job not found")
+        db.delete(job)
+        db.commit()
+
+    run_dir = (RUNS_DIR / job_id).resolve()
+    runs_root = RUNS_DIR.resolve()
+    if runs_root not in run_dir.parents:
+        raise RuntimeError("run path is outside runs directory")
+    if run_dir.exists():
+        shutil.rmtree(run_dir)

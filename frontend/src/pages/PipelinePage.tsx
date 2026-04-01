@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { fetchArtifactPreview, fetchJobArtifacts, fetchJobs, startAnalyzeJob, startScrapeJob } from "../api/dashboard";
+import { deleteJob, fetchArtifactPreview, fetchJobArtifacts, fetchJobs, startAnalyzeJob, startScrapeJob } from "../api/dashboard";
 import { EmptyState } from "../components/EmptyState";
 import type { PipelineJob } from "../types/api";
 
@@ -76,6 +76,17 @@ export function PipelinePage() {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       setSelectedJobId(job.id);
       setSelectedArtifactKey("");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteJob,
+    onSuccess: (_, jobId) => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      if (selectedJobId === jobId) {
+        setSelectedJobId("");
+        setSelectedArtifactKey("");
+      }
     },
   });
 
@@ -247,16 +258,32 @@ export function PipelinePage() {
                     <td>{job.completed_at ? new Date(job.completed_at).toLocaleString() : "running"}</td>
                     <td>{summarizeJob(job).slice(0, 90)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="tiny-btn"
-                        onClick={() => {
-                          setSelectedJobId(job.id);
-                          setSelectedArtifactKey("");
-                        }}
-                      >
-                        view
-                      </button>
+                      <div className="control-row">
+                        <button
+                          type="button"
+                          className="tiny-btn"
+                          onClick={() => {
+                            setSelectedJobId(job.id);
+                            setSelectedArtifactKey("");
+                          }}
+                        >
+                          view
+                        </button>
+                        {job.status !== "running" && job.status !== "pending" ? (
+                          <button
+                            type="button"
+                            className="tiny-btn secondary"
+                            onClick={() => {
+                              const confirmed = window.confirm(`delete job ${job.id.slice(0, 8)} and its stored run files?`);
+                              if (!confirmed) return;
+                              deleteMutation.mutate(job.id);
+                            }}
+                            disabled={deleteMutation.isPending}
+                          >
+                            delete
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}

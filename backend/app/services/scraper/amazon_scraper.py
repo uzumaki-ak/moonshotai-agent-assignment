@@ -286,7 +286,9 @@ class AmazonScraper:
 
     def _is_relevant_product(self, title: str, category: Optional[str]) -> bool:
         # this helper filters obvious non luggage results from broad brand searches
-        text = f"{title} {category or ''}".lower()
+        title_text = title.lower()
+        category_text = (category or "").lower()
+        text = f"{title_text} {category_text}"
         positive_keywords = [
             "luggage",
             "suitcase",
@@ -316,7 +318,16 @@ class AmazonScraper:
             "wallet",
         ]
 
-        if any(keyword in text for keyword in negative_keywords):
+        luggage_category_markers = [
+            "bags, wallets and luggage > luggage",
+            "suitcases & trolley bags",
+            "travel duffels",
+            "travel backpacks",
+        ]
+
+        if any(marker in category_text for marker in luggage_category_markers):
+            return True
+        if any(keyword in title_text for keyword in negative_keywords):
             return False
         return any(keyword in text for keyword in positive_keywords)
 
