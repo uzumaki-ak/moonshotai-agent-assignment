@@ -179,10 +179,6 @@ GROQ_API_KEY=
 local fallback requires ollama running with qwen model.
 
 ## security and config notes
-
-- frontend does not store secret keys
-- `.env` files are git ignored
-- backend reads llm and db credentials from environment variables
 - raw and cleaned dataset outputs are generated at runtime in `data/runs/*` and `data/cleaned/*`
 
 ## submission package
