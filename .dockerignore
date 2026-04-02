@@ -1,0 +1,22 @@
+# this file keeps local and heavy artifacts out of docker build contexts
+.git
+.gitignore
+.dockerignore
+
+**/.env
+**/.env.*
+**/.venv
+**/venv
+**/__pycache__
+
+node_modules
+frontend/node_modules
+frontend/dist
+backend/.pytest_cache
+backend/.mypy_cache
+backend/.ruff_cache
+
+data
+docs
+rev2.html
+revi.md

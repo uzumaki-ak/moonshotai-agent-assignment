@@ -1,0 +1,7 @@
+# this file keeps backend local artifacts out of git
+.env
+.env.*
+.venv
+venv
+__pycache__/
+*.pyc

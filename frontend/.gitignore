@@ -1,0 +1,5 @@
+# this file keeps frontend local artifacts out of git
+.env
+.env.*
+node_modules/
+dist/

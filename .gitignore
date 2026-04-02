@@ -10,6 +10,10 @@ venv/
 .env.*
 !.env.example
 
+# local debug artifacts
+rev2.html
+revi.md
+
 node_modules/
 frontend/node_modules/
 frontend/dist/
