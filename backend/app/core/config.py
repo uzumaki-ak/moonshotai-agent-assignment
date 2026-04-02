@@ -65,6 +65,28 @@ class Settings(BaseSettings):
             return ",".join([item.strip() for item in trimmed.split(",") if item.strip()])
         return "http://localhost:5173"
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value):
+        # this validator keeps db driver aligned with psycopg v3 in every env
+        if not isinstance(value, str):
+            return value
+
+        url = value.strip()
+        if not url:
+            return "postgresql+psycopg://postgres:postgres@localhost:5432/moonshot_ai"
+
+        if url.startswith("postgres://"):
+            url = f"postgresql://{url[len('postgres://'):]}"
+
+        if url.startswith("postgresql+psycopg2://"):
+            return f"postgresql+psycopg://{url[len('postgresql+psycopg2://'):]}"
+
+        if url.startswith("postgresql://"):
+            return f"postgresql+psycopg://{url[len('postgresql://'):]}"
+
+        return url
+
     @property
     def cors_origins(self) -> List[str]:
         # this helper exposes cors origins as list for fastapi middleware
