@@ -1,22 +1,15 @@
 # this dockerfile builds the backend api service
-FROM python:3.11-slim
+FROM mcr.microsoft.com/playwright/python:v1.53.0-jammy
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# playwright is needed for scraping, keep it available for full pipeline runs
-RUN python -m playwright install --with-deps chromium
+# browser deps and chromium are already available in playwright base image
 
 COPY app ./app
 COPY scripts ./scripts

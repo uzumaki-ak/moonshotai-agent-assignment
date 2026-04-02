@@ -1,4 +1,4 @@
-// this file defines api helpers for all dashboard pages
+
 import { apiClient } from "./client";
 import type {
   Brand,
