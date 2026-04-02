@@ -21,9 +21,9 @@
 - deterministic fallback for insights when llm fails
 - frontend query caching with react query
 
-## why this works for assignment
+
 
 - covers sentiment, pricing, competitive comparison, and interactive ui
 - exposes brand and product drilldown with dynamic filters
 - includes agent insight layer with non obvious conclusions
-- has cleaned dataset artifact for submission package
+- has cleaned dataset artifact 
