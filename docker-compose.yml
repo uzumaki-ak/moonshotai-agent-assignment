@@ -1,6 +1,8 @@
 # this file runs database, backend, and frontend together
 services:
   db:
+    # this local db is optional and only runs when local profile is used
+    profiles: ["local"]
     image: postgres:16-alpine
     container_name: moonshot_db
     restart: unless-stopped
@@ -20,10 +22,6 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/moonshot_ai
-    depends_on:
-      - db
     ports:
       - "8000:8000"
 
@@ -31,7 +29,7 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: http://localhost:8000/api/v1
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
     container_name: moonshot_frontend
     restart: unless-stopped
     depends_on:
