@@ -6,8 +6,6 @@ __pycache__/
 .Python
 .venv/
 venv/
-.env
-.env.*
 !.env.example
 
 # local debug artifacts
@@ -35,3 +33,4 @@ Thumbs.db
 !data/raw/.gitkeep
 !data/cleaned/.gitkeep
 !data/runs/.gitkeep
+config.bat
